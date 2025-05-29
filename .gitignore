@@ -1,0 +1,37 @@
+build/
+sdkconfig
+sdkconfig.old
+partitions.bin
+bootloader/*.bin
+bootloader/*.elf
+bootloader/*.map
+*.bin
+*.elf
+*.map
+
+# Object files
+*.o
+*.a
+
+# VSCode specific
+.vscode/
+
+# Markdown files 
+run.md
+uwb1claude.md
+uwb2gemini.md
+# Other common files to ignore
+# Temporary files, backup files, editor swap files
+*~
+*.bak
+*.orig
+*.swo
+*.swp
+
+# Coverage data
+*.gcno
+*.gcda
+
+# Python virtual environment (if used for helper scripts)
+venv/
+.venv/ 
