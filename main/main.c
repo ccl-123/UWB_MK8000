@@ -1,7 +1,7 @@
 /**
  * @file app_main.c
  * @brief UWB模块驱动应用层示例。
- * @details 演示如何初始化UWB驱动，配置模块为“主机”模式，
+ * @details 演示如何初始化UWB驱动，配置模块为"主机"模式，
  * 并通过回调函数接收和打印测距数据。
  * @date 2025-05-28
  */
@@ -13,6 +13,11 @@
 #include "esp_log.h"
 #include "nvs_flash.h"
 #include "uwb_mk8000.h" 
+
+#ifdef UWB_DUAL_UART_SIM_MODE
+
+#include "uwb_module_simulator.h" 
+#endif
 
 static const char* TAG = "UWB_APP";
 
@@ -45,10 +50,32 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
 
+
     ESP_LOGI(TAG, "UWB Application Started.");
 
-    // 2. 定义UART配置 
-    uwb_uart_config_t uart_config = {
+#ifdef UWB_DUAL_UART_SIM_MODE
+    ESP_LOGI(TAG, "Dual UART Simulation Mode is ENABLED.");
+    // 配置和初始化 UWB 模块模拟器 (UART_B)
+    uwb_simulator_uart_config_t sim_uart_config = {
+        .uart_num = UART_NUM_1,       // 使用 UART1 作为模拟器端口
+        .tx_pin = 19,                 // 模拟器 UART_B TX (连接到主应用 UART_A RX)
+        .rx_pin = 18,                 // 模拟器 UART_B RX (连接到主应用 UART_A TX)
+        .baud_rate = UWB_DEFAULT_BAUD_RATE, // 与主应用UART波特率一致
+        .rx_buffer_size = 1024 * 2,
+        .tx_buffer_size = 512
+    };
+    ret = uwb_simulator_init(&sim_uart_config);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize UWB module simulator!");
+        // 决定是否在此处中止，或允许应用继续（可能没有UWB功能）
+    } else {
+        ESP_LOGI(TAG, "UWB module simulator initialized on UART%d.", sim_uart_config.uart_num);
+    }
+    vTaskDelay(pdMS_TO_TICKS(100)); 
+#endif
+
+    // 2. 定义主应用 UART 配置 (UART_A)
+    uwb_uart_config_t app_uart_config = {
         .uart_num = UART_NUM_2,         // 使用UART2 
         .tx_pin = 17,                   // UWB_RX 连接到 ESP32_TX (GPIO17)
         .rx_pin = 16,                   // UWB_TX 连接到 ESP32_RX (GPIO16)
@@ -58,17 +85,18 @@ void app_main(void)
     };
 
     // 3. 初始化UWB驱动
-    ret = uwb_driver_init(&uart_config, ranging_data_handler);
+    ret = uwb_driver_init(&app_uart_config, ranging_data_handler);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize UWB driver!");
-        return; // 初始化失败，无法继续
+        return;
     }
     ESP_LOGI(TAG, "UWB driver initialized.");
 
     // 给一点时间稳定
-    vTaskDelay(pdMS_TO_TICKS(500));
+    ESP_LOGI(TAG, "Waiting for system to stabilize before UWB configuration...");
+    vTaskDelay(pdMS_TO_TICKS(1000)); 
 
-    // 4. 定义模块配置 (配置为“主机”，与从机0x0001通信，周期200ms)
+    // 4. 定义模块配置 (配置为"主机"，与从机0x0001通信，周期200ms)
     uwb_settings_t my_settings = {
         .role = UWB_ROLE_MASTER,        // 设置为 主机 
         .self_address = 0x0000,         // 主机地址

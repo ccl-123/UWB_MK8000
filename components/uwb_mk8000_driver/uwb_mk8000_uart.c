@@ -25,7 +25,6 @@ void uwb_process_received_data(const uint8_t* data, uint16_t len);
 
 /* ------------------------- FreeRTOS任务 ------------------------- */
 
-#ifndef UWB_SIMULATION_MODE // 只有在非模拟模式下才编译和运行真实UART任务
 /**
  * @brief UART接收和事件处理任务。
  * @details 持续监听UART事件队列，当有数据到达时读取数据，
@@ -99,7 +98,6 @@ static void uwb_uart_event_task(void *arg)
     rx_buffer = NULL;
     vTaskDelete(NULL);
 }
-#endif // !UWB_SIMULATION_MODE
 
 /* ------------------------- 内部API实现 ------------------------- */
 
@@ -111,11 +109,7 @@ static void uwb_uart_event_task(void *arg)
  */
 esp_err_t uwb_uart_init_internal(const uwb_uart_config_t* config)
 {
-#ifdef UWB_SIMULATION_MODE
-    ESP_LOGW(UART_TAG, "SIM_MODE: Skipping UART driver install and task creation.");
-    g_uart_port = config->uart_num; // 仍然保存端口号, 尽管不用
-    return ESP_OK;
-#else
+
     
     g_uart_port = config->uart_num;
 
@@ -166,7 +160,7 @@ esp_err_t uwb_uart_init_internal(const uwb_uart_config_t* config)
     }
 
     return (task_ret == pdPASS) ? ESP_OK : ESP_FAIL;
-#endif // UWB_SIMULATION_MODE
+
 }
 
 /**
@@ -176,10 +170,7 @@ esp_err_t uwb_uart_init_internal(const uwb_uart_config_t* config)
  */
 esp_err_t uwb_uart_deinit_internal(void)
 {
-#ifdef UWB_SIMULATION_MODE
-    ESP_LOGW(UART_TAG, "SIM_MODE: Skipping UART driver deinit.");
-    return ESP_OK;
-#else
+
     if (g_uart_rx_task_handle != NULL) {
         vTaskDelete(g_uart_rx_task_handle);
         g_uart_rx_task_handle = NULL;
@@ -190,7 +181,7 @@ esp_err_t uwb_uart_deinit_internal(void)
     }
     g_uart_queue = NULL;
     return ESP_OK;
-#endif // UWB_SIMULATION_MODE
+
 }
 
 /**
@@ -201,15 +192,18 @@ esp_err_t uwb_uart_deinit_internal(void)
  */
 int uwb_uart_send_data(const char* data, size_t len)
 {
-#ifdef UWB_SIMULATION_MODE
-    ESP_LOGW(UART_TAG, "SIM_MODE: UART send ignored.");
-    return len; // 假装发送成功
-#else
     if (!uart_is_driver_installed(g_uart_port)) {
-        ESP_LOGE(UART_TAG, "UART driver not installed.");
+        ESP_LOGE(UART_TAG, "UART driver (port %d) not installed for sending.", g_uart_port);
         return -1;
     }
-    ESP_LOGD(UART_TAG, "UART sending %d bytes: %.*s", len, len, data);
+
+#if defined(UWB_DUAL_UART_SIM_MODE)
+    // 在双UART模拟模式下，App UART (UART2) 发送数据给模拟器的UART1
+    ESP_LOGD(UART_TAG, "DUAL_UART_SIM: App UART (port %d) sending %d bytes: %.*s", g_uart_port, (int)len, (int)len, data);
+#else
+    // 真正的硬件模式
+    ESP_LOGD(UART_TAG, "HW_MODE: UART (port %d) sending %d bytes: %.*s", g_uart_port, (int)len, (int)len, data);
+#endif
+
     return uart_write_bytes(g_uart_port, data, len);
-#endif // UWB_SIMULATION_MODE
 }

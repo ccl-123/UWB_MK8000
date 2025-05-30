@@ -77,43 +77,13 @@ esp_err_t uwb_at_send_cmd_sync(const char* cmd, char* response_buf, size_t buf_l
     memset(g_at_response_buffer, 0, AT_RESPONSE_BUF_SIZE);
     xSemaphoreTake(g_at_response_sem, 0);
 
-#ifdef UWB_SIMULATION_MODE
-
-    ESP_LOGW(AT_TAG, "SIM_MODE: Simulating AT command: %.*s", strlen(cmd) - 2, cmd); // 打印时不显示 \r\n
-
-    // --- 模拟响应逻辑 ---
-    char sim_response[64] = "OK"; // 默认响应 OK
-    bool sim_ok = true;
-
-    // 在这里添加对特定命令的模拟响应
-    if (strstr(cmd, "AT+VER")) {
-        strcpy(sim_response, "MK8000PATR7.9-GC_V1.0.0");
-    } else if (strstr(cmd, "AT+ALL")) {
-        strcpy(sim_response, "AT+ROLE=1\nAT+PID=255\nOK"); // 模拟多行响应 + OK
-    } else if (strstr(cmd, "FAIL_TEST")) { // 示例：模拟失败
-        strcpy(sim_response, "ERROR");
-        sim_ok = false;
-    }
-
-    // 模拟UWB处理延时
-    vTaskDelay(pdMS_TO_TICKS(10));
-
-    // 直接调用处理函数来模拟接收并释放信号量
-    // 注意：如果模拟多行响应，需要多次调用或修改 handle_response_line
-    strncpy(g_at_response_buffer, sim_response, AT_RESPONSE_BUF_SIZE - 1); // 填充缓冲区供查询
-    g_at_response_ok = sim_ok;
-    xSemaphoreGive(g_at_response_sem); // 直接释放信号量
-
-#else // !UWB_SIMULATION_MODE
-    // --- 真实硬件逻辑 ---
-    ESP_LOGD(AT_TAG, "Sending AT: %.*s", strlen(cmd) - 2, cmd);
-    if (uwb_uart_send_data(cmd, strlen(cmd)) <= 0) {
+    ESP_LOGW(AT_TAG, ">>> SENDING AT CMD: [%s] (len: %d)", cmd, strlen(cmd));
+    
+    if (uwb_uart_send_data(cmd, strlen(cmd)) <= 0) {//发送非NULL命令uwb_uart_send_data
         ESP_LOGE(AT_TAG, "Failed to send AT command: %s", cmd);
         return ESP_ERR_NO_MEM;
     }
-#endif // UWB_SIMULATION_MODE
 
-    // --- 等待响应逻辑 (模拟和真实模式共用) ---
     if (xSemaphoreTake(g_at_response_sem, pdMS_TO_TICKS(timeout_ms)) == pdTRUE) {
         // 收到了响应 (或模拟响应)
         if (response_buf != NULL && buf_len > 0) {

@@ -1,3 +1,3 @@
 idf_component_register(SRCS "main.c" 
                     INCLUDE_DIRS "."
-                    REQUIRES nvs_flash log uwb_mk8000_driver) 
+                    REQUIRES nvs_flash log uwb_mk8000_driver uwb_module_simulator) 

@@ -31,52 +31,6 @@ extern void uwb_at_deinit_internal(void);
 extern esp_err_t uwb_at_send_cmd_sync(const char* cmd, char* response_buf, size_t buf_len, uint32_t timeout_ms);
 extern void uwb_at_handle_response_line(const char* line);
 
-extern void uwb_process_received_data(const uint8_t* data, uint16_t len); // 确保这个函数是可访问的
-
-
-/* ------------------------- 仿真函数 ------------------------- */
-#ifdef UWB_SIMULATION_MODE
-/**
- * @brief 模拟UWB模块发送测距数据的任务。
- * @details 只在 UWB_SIMULATION_MODE 宏定义时编译和运行。
- * 它会周期性地生成假的测距数据帧，并调用
- * uwb_process_received_data 来模拟接收过程。
- * @param[in] arg 未使用。
- */
-static void uwb_ranging_simulator_task(void *arg) {
-    uint16_t dist = 50;
-    uint16_t slave_addr = 0x0001;
-    ESP_LOGW(CORE_TAG, "SIM_MODE: Ranging simulator task started.");
-    vTaskDelay(pdMS_TO_TICKS(1000));//等待AT command 完成
-
-    while(1) {
-        // 模拟测距周期 ( 200ms)
-        vTaskDelay(pdMS_TO_TICKS(200));
-
-        uint8_t frame[RANGING_FRAME_SIZE];
-        frame[0] = 0xF0; // 帧头
-        frame[1] = 0x05; // 长度
-        frame[2] = slave_addr & 0xFF; // 从机地址 L
-        frame[3] = (slave_addr >> 8) & 0xFF; // 从机地址 H
-        frame[4] = dist & 0xFF; // 距离 L
-        frame[5] = (dist >> 8) & 0xFF; // 距离 H
-        frame[6] = 180; // 模拟 RSSI (-76dBm)
-        frame[7] = 0xAA; // 帧尾
-
-        ESP_LOGD(CORE_TAG, "SIM_MODE: Injecting ranging frame, Dist=%d", dist);
-        // 直接调用数据处理函数，模拟接收
-        uwb_process_received_data(frame, RANGING_FRAME_SIZE);
-
-        // 改变距离和地址，模拟多个从机
-        dist = 50 + (rand() % 50); // 50 到 99 之间变化
-        slave_addr++;
-        if (slave_addr > 0x0003) {
-            slave_addr = 0x0001;
-        }
-    }
-}
-#endif // UWB_SIMULATION_MODE
-
 
 
 /* ------------------------- 内部函数 ------------------------- */
@@ -132,7 +86,7 @@ void uwb_process_received_data(const uint8_t* data, uint16_t len)
         uint8_t byte = data[i];
 
         // 尝试检测测距帧头 F0
-        if (byte == 0xF0 && g_rx_line_pos == 0) { // 只有在缓冲区开始时才认F0
+        if (byte == 0xF0 && g_rx_line_pos == 0) { 
             g_rx_line_buffer[0] = 0xF0;
             g_rx_line_pos = 1;
             continue;
@@ -141,7 +95,6 @@ void uwb_process_received_data(const uint8_t* data, uint16_t len)
         // 如果正在接收测距帧
         if (g_rx_line_pos > 0 && g_rx_line_buffer[0] == 0xF0) {
             g_rx_line_buffer[g_rx_line_pos++] = byte;
-            // 检查是否达到完整帧长度
             if (g_rx_line_pos == RANGING_FRAME_SIZE) 
             {
                 handle_ranging_frame(g_rx_line_buffer, RANGING_FRAME_SIZE);
@@ -154,8 +107,10 @@ void uwb_process_received_data(const uint8_t* data, uint16_t len)
             continue;
         }
 
-        // 否则，假设是AT响应，按行处理
+        // 否则，假设是AT响应，按行处理 (This part is simplified)
         if (byte == '\n') {
+
+            // 真实模式下的处理逻辑不变 (now also for new dual UART sim mode from app UART perspective)
             if (g_rx_line_pos > 0 && g_rx_line_buffer[g_rx_line_pos - 1] == '\r') {
                 g_rx_line_buffer[g_rx_line_pos - 1] = '\0'; // 去掉 \r
                 uwb_at_handle_response_line((const char*)g_rx_line_buffer);
@@ -163,7 +118,8 @@ void uwb_process_received_data(const uint8_t* data, uint16_t len)
                  g_rx_line_buffer[g_rx_line_pos] = '\0';
                  uwb_at_handle_response_line((const char*)g_rx_line_buffer);
             }
-            g_rx_line_pos = 0; // 新行，重置
+
+            g_rx_line_pos = 0; 
         } else if (g_rx_line_pos < RX_LINE_BUF_SIZE - 1) {
             g_rx_line_buffer[g_rx_line_pos++] = byte;
         } else {
@@ -190,37 +146,20 @@ esp_err_t uwb_driver_init(const uwb_uart_config_t* uart_config, uwb_ranging_call
     esp_err_t ret = uwb_at_init_internal();
     if (ret != ESP_OK) return ret;
 
-#ifdef UWB_SIMULATION_MODE
-    ESP_LOGW(CORE_TAG, "SIM_MODE: Skipping UART initialization.");
-    ret = ESP_OK; // 模拟模式下不初始化UART
-#else
-    ret = uwb_uart_init_internal(uart_config);
-#endif
+
+    ret = uwb_uart_init_internal(uart_config); // Always init app UART
+
 
     if (ret != ESP_OK) {
         uwb_at_deinit_internal();
         return ret;
     }
 
-#ifdef UWB_SIMULATION_MODE
-    // 创建模拟测距数据任务
-    BaseType_t task_ret = xTaskCreate(uwb_ranging_simulator_task,
-                                      "uwb_sim_task",
-                                      2048,
-                                      NULL,
-                                      5, 
-                                      NULL);
-    if (task_ret != pdPASS) {
-        ESP_LOGE(CORE_TAG, "Failed to create UWB simulator task");
-        uwb_driver_deinit(); // 清理
-        return ESP_FAIL;
-    }
-#endif // UWB_SIMULATION_MODE
 
     g_driver_initialized = true;
     ESP_LOGI(CORE_TAG, "UWB driver initialized %s.",
-             #ifdef UWB_SIMULATION_MODE
-             "in SIMULATION MODE"
+             #ifdef UWB_DUAL_UART_SIM_MODE
+             "in DUAL UART SIMULATION MODE (App UART)"
              #else
              "in REAL HARDWARE MODE"
              #endif
