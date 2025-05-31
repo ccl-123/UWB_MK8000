@@ -100,7 +100,7 @@ void app_main(void)
     uwb_settings_t my_settings = {
         .role = UWB_ROLE_MASTER,        // 设置为 主机 
         .self_address = 0x0000,         // 主机地址
-        .master_address = 0x0000,       
+        .master_address = 0x0000,       //从机模式调用
         .slave_addr_0 = 0x0001,         // 设置从机0地址 
         .slave_addr_1 = 0x0002,         // 设置从机1地址  
         .slave_addr_2 = 0x0003,         // 设置从机2地址 

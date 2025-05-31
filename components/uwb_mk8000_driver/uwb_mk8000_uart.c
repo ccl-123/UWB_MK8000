@@ -113,6 +113,8 @@ esp_err_t uwb_uart_init_internal(const uwb_uart_config_t* config)
     
     g_uart_port = config->uart_num;
 
+
+
     uart_config_t uart_config_idf = {
         .baud_rate = config->baud_rate,
         .data_bits = UART_DATA_8_BITS,
@@ -145,6 +147,14 @@ esp_err_t uwb_uart_init_internal(const uwb_uart_config_t* config)
         ESP_LOGE(UART_TAG, "Failed to set UART pins: %s", esp_err_to_name(ret));
         return ret;
     }
+    
+    // 清空输入缓冲区，尝试清除初始化时可能产生的垃圾数据
+    // 第一次 flush 清除已存在的数据。
+    // 短暂延迟允许那些在第一次 flush 时"正在路上"或即将产生的噪声到达。
+    // 第二次 flush 清除这个窗口期内新到达的垃圾数据。
+    uart_flush_input(g_uart_port);
+    vTaskDelay(pdMS_TO_TICKS(20)); // 20ms 延迟
+    uart_flush_input(g_uart_port);
 
     // 创建UART接收任务
     BaseType_t task_ret = xTaskCreate(uwb_uart_event_task,

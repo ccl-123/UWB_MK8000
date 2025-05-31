@@ -39,6 +39,31 @@ static void uwb_sim_uart_b_event_task(void *pvParameters);
 static void uwb_sim_ranging_data_task(void *pvParameters);
 static void sim_send_response(const char* response);
 
+
+/**
+ * @brief 将模拟器参数重置为出厂默认值。
+ * @details 根据 uwb1claude.md 手册第六节 "出厂默认参数" 表格设置。
+ */
+static void sim_load_factory_defaults(void)
+{
+    ESP_LOGI(TAG_SIM, "正在加载模拟器出厂默认参数...");
+
+    g_sim_role = UWB_ROLE_MASTER;         // 手册默认: 主机模式 (1)
+    g_sim_power_level = 3;                // 手册默认: 3 (14dBm)
+    g_sim_pid = UWB_DEFAULT_NETWORK_ID;   // 手册默认: 255
+    g_sim_period_factor = UWB_DEFAULT_PERIOD; // 手册默认: 100 (1s)
+    // g_sim_baud_rate 在模拟器中于初始化时固定, 这里不改变其运行时值
+    // 但其初始值 UWB_DEFAULT_BAUD_RATE (115200) 符合手册默认
+    g_sim_lpwr = UWB_LPWR_OFF;          // 手册默认: 0 (关闭)
+    g_sim_maddr = 0x0001;                   // 手册默认: 1 (主机地址)
+    g_sim_saddr0 = 0x0000;                  // 手册默认: 0
+    g_sim_saddr1 = 0x0000;                  // 手册默认: 0
+    g_sim_saddr2 = 0x0000;                  // 手册默认: 0
+    g_sim_current_mode = UWB_MODE_RANGING;  // 手册默认: 上电或复位后为测距模式
+
+    ESP_LOGI(TAG_SIM, "模拟器出厂默认参数加载完成。当前模式: %s", g_sim_current_mode == UWB_MODE_RANGING ? "测距模式" : "AT指令模式");
+}
+
 // 通过模拟器UART发送响应字符串的辅助函数
 static void sim_send_response(const char* response) 
 {
@@ -80,6 +105,14 @@ esp_err_t uwb_simulator_init(const uwb_simulator_uart_config_t* sim_uart_config)
     if (ret != ESP_OK) { ESP_LOGE(TAG_SIM, "配置UART%d参数失败", g_sim_uart_port); return ret; }
     ret = uart_set_pin(g_sim_uart_port, sim_uart_config->tx_pin, sim_uart_config->rx_pin, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
     if (ret != ESP_OK) { ESP_LOGE(TAG_SIM, "设置UART%d引脚失败", g_sim_uart_port); return ret; }
+
+    // 添加清空输入缓冲区，与驱动侧的策略一致，尝试清除初始化时的垃圾数据
+    // 第一次 flush 清除已存在的数据。
+    // 短暂延迟允许那些在第一次 flush 时"正在路上"或即将产生的噪声到达。
+    // 第二次 flush 清除这个窗口期内新到达的垃圾数据。
+    uart_flush_input(g_sim_uart_port);
+    vTaskDelay(pdMS_TO_TICKS(20)); // 20ms 延迟
+    uart_flush_input(g_sim_uart_port);
 
     BaseType_t task_created;
     task_created = xTaskCreate(uwb_sim_uart_b_event_task, "sim_uart_event_task", 4096, NULL, 10, &g_sim_uart_event_task_handle); // UART事件处理任务
@@ -175,40 +208,39 @@ static void uwb_sim_uart_b_event_task(void *pvParameters)
                                     }
                                     const char* cmd_line = (const char*)g_sim_rx_line_buffer; // 当前处理的AT指令行
                                     ESP_LOGI(TAG_SIM, "接收到模拟AT指令: %s", cmd_line);
-                                    ESP_LOGW(TAG_SIM, "<<< PARSED CMD_LINE: [%s] (len: %d)", cmd_line, strlen(cmd_line)); // 添加的日志行 (解析后)
+                                    ESP_LOGW(TAG_SIM, "<<< PARSED CMD_LINE: %s (len: %d)", cmd_line, strlen(cmd_line)); // 添加的日志行 (解析后)
 
                                     char response[256]; // AT指令响应缓冲区
 
                                     // 根据数据手册 (uwb1claude.md) 处理AT指令并生成响应
                                     if (strcmp(cmd_line, "AT+VER") == 0) {
                                         sprintf(response, "MK8000_SIM_V1.0\r\nOK\r\n");
-                                    } else if (strcmp(cmd_line, "AT+RST") == 0) {
+                                    } 
+                                    else if (strcmp(cmd_line, "AT+RST") == 0) {
                                         sprintf(response, "OK\r\n");
                                         // 模拟复位：将参数恢复为出厂默认值
-                                        g_sim_role = UWB_ROLE_MASTER;
-                                        g_sim_maddr = 0x0001;
-                                        g_sim_saddr0 = 0x0000;
-                                        g_sim_saddr1 = 0x0000;
-                                        g_sim_saddr2 = 0x0000;
-                                        g_sim_pid = UWB_DEFAULT_NETWORK_ID;
-                                        g_sim_period_factor = UWB_DEFAULT_PERIOD;
-                                        g_sim_lpwr = UWB_LPWR_OFF;
-                                        g_sim_power_level = 3;
-                                        g_sim_current_mode = UWB_MODE_RANGING; // 复位后默认为测距模式
-                                        ESP_LOGI(TAG_SIM, "模拟模块复位完成。当前模式: 测距模式");
-                                        if(g_sim_ranging_data_task_handle) vTaskResume(g_sim_ranging_data_task_handle); // 恢复测距任务
-                                    } else if (strcmp(cmd_line, "AT+DEFT") == 0) {
+                                        sim_load_factory_defaults();
+                                        ESP_LOGI(TAG_SIM, "模拟模块软件复位完成。已加载出厂默认参数。当前模式: %s", g_sim_current_mode == UWB_MODE_RANGING ? "测距模式" : "AT指令模式");
+                                        if(g_sim_ranging_data_task_handle && g_sim_current_mode == UWB_MODE_RANGING) {
+                                             vTaskResume(g_sim_ranging_data_task_handle); // 恢复测距任务
+                                             ESP_LOGI(TAG_SIM, "测距任务已恢复 (AT+RST)");
+                                        } else if (g_sim_ranging_data_task_handle && g_sim_current_mode != UWB_MODE_RANGING) {
+                                             ESP_LOGW(TAG_SIM, "AT+RST 后模式不为测距，测距任务未恢复");
+                                        }
+                                    } 
+                                    else if (strcmp(cmd_line, "AT+DEFT") == 0) {
                                          // 恢复出厂设置，与复位类似
                                         sprintf(response, "OK\r\n");
-                                        g_sim_role = UWB_ROLE_MASTER;
-                                        g_sim_maddr = 0x0001;
-                                        g_sim_saddr0 = 0x0000; // 等等，其他参数也应恢复
-                                        g_sim_pid = UWB_DEFAULT_NETWORK_ID;
-                                        g_sim_period_factor = UWB_DEFAULT_PERIOD;
-                                        g_sim_current_mode = UWB_MODE_RANGING;
-                                        ESP_LOGI(TAG_SIM, "模拟恢复出厂设置完成。");
-                                        if(g_sim_ranging_data_task_handle) vTaskResume(g_sim_ranging_data_task_handle);
-                                    } else if (strncmp(cmd_line, "AT+MODE=", 8) == 0) {
+                                        sim_load_factory_defaults();
+                                        ESP_LOGI(TAG_SIM, "模拟恢复出厂设置完成。已加载出厂默认参数。当前模式: %s", g_sim_current_mode == UWB_MODE_RANGING ? "测距模式" : "AT指令模式");
+                                        if(g_sim_ranging_data_task_handle && g_sim_current_mode == UWB_MODE_RANGING) {
+                                            vTaskResume(g_sim_ranging_data_task_handle); // 恢复测距任务
+                                            ESP_LOGI(TAG_SIM, "测距任务已恢复 (AT+DEFT)");
+                                        } else if (g_sim_ranging_data_task_handle && g_sim_current_mode != UWB_MODE_RANGING) {
+                                            ESP_LOGW(TAG_SIM, "AT+DEFT 后模式不为测距，测距任务未恢复");
+                                        }
+                                    } 
+                                    else if (strncmp(cmd_line, "AT+MODE=", 8) == 0) {
                                         int mode = atoi(cmd_line + 8); // 解析模式值
                                         if (mode == 0 || mode == 1) { // 0: AT指令模式, 1: 测距模式
                                             g_sim_current_mode = (uwb_mode_t)mode;
@@ -222,66 +254,89 @@ static void uwb_sim_uart_b_event_task(void *pvParameters)
                                         } else {
                                             sprintf(response, "ERROR\r\n"); // 无效的模式值
                                         }
-                                    } else if (strcmp(cmd_line, "AT+MODE?") == 0 || strcmp(cmd_line, "AT+MODE=?") == 0) {
+                                    } 
+                                    else if (strcmp(cmd_line, "AT+MODE?") == 0 || strcmp(cmd_line, "AT+MODE=?") == 0) {
                                         sprintf(response, "MODE:%d\r\nOK\r\n", g_sim_current_mode);
-                                    } else if (strncmp(cmd_line, "AT+ROLE=", 8) == 0) {
+                                    } 
+                                    else if (strncmp(cmd_line, "AT+ROLE=", 8) == 0) {
                                         g_sim_role = (uwb_role_t)atoi(cmd_line + 8);
                                         sprintf(response, "OK\r\n");
-                                    } else if (strcmp(cmd_line, "AT+ROLE?") == 0 || strcmp(cmd_line, "AT+ROLE=?") == 0) {
+                                    } 
+                                    else if (strcmp(cmd_line, "AT+ROLE?") == 0 || strcmp(cmd_line, "AT+ROLE=?") == 0) {
                                         sprintf(response, "ROLE:%d\r\nOK\r\n", g_sim_role);
-                                    } else if (strncmp(cmd_line, "AT+PID=", 7) == 0) {
+                                    } 
+                                    else if (strncmp(cmd_line, "AT+PID=", 7) == 0) {
                                         g_sim_pid = atoi(cmd_line + 7);
                                         sprintf(response, "OK\r\n");
-                                    } else if (strcmp(cmd_line, "AT+PID?") == 0 || strcmp(cmd_line, "AT+PID=?") == 0) {
+                                    } 
+                                    else if (strcmp(cmd_line, "AT+PID?") == 0 || strcmp(cmd_line, "AT+PID=?") == 0) {
                                         sprintf(response, "PID:%d\r\nOK\r\n", g_sim_pid);
-                                    } else if (strncmp(cmd_line, "AT+PERIOD=", 10) == 0) {
+                                    } 
+                                    else if (strncmp(cmd_line, "AT+PERIOD=", 10) == 0) {
                                         g_sim_period_factor = atoi(cmd_line + 10);
                                         sprintf(response, "OK\r\n");
-                                    } else if (strcmp(cmd_line, "AT+PERIOD?") == 0 || strcmp(cmd_line, "AT+PERIOD=?") == 0) {
+                                    } 
+                                    else if (strcmp(cmd_line, "AT+PERIOD?") == 0 || strcmp(cmd_line, "AT+PERIOD=?") == 0) {
                                         sprintf(response, "PERIOD:%d\r\nOK\r\n", g_sim_period_factor);
-                                    } else if (strncmp(cmd_line, "AT+MADDR=", 9) == 0) {
+                                    } 
+                                    else if (strncmp(cmd_line, "AT+MADDR=", 9) == 0) {
                                         sscanf(cmd_line + 9, "%hx", &g_sim_maddr); // 解析十六进制地址
                                         sprintf(response, "OK\r\n");
-                                    } else if (strcmp(cmd_line, "AT+MADDR?") == 0 || strcmp(cmd_line, "AT+MADDR=?") == 0) {
+                                    } 
+                                    else if (strcmp(cmd_line, "AT+MADDR?") == 0 || strcmp(cmd_line, "AT+MADDR=?") == 0) {
                                         sprintf(response, "MADDR:%04X\r\nOK\r\n", g_sim_maddr);
-                                    } else if (strncmp(cmd_line, "AT+SADDR0=", 10) == 0) {
+                                    } 
+                                    else if (strncmp(cmd_line, "AT+SADDR0=", 10) == 0) {
                                         sscanf(cmd_line + 10, "%hx", &g_sim_saddr0);
                                         sprintf(response, "OK\r\n");
-                                    } else if (strcmp(cmd_line, "AT+SADDR0?") == 0 || strcmp(cmd_line, "AT+SADDR0=?") == 0) {
+                                    } 
+                                    else if (strcmp(cmd_line, "AT+SADDR0?") == 0 || strcmp(cmd_line, "AT+SADDR0=?") == 0) {
                                         sprintf(response, "SADDR0:%04X\r\nOK\r\n", g_sim_saddr0);
-                                    } else if (strncmp(cmd_line, "AT+SADDR1=", 10) == 0) {
+                                    } 
+                                    else if (strncmp(cmd_line, "AT+SADDR1=", 10) == 0) {
                                         sscanf(cmd_line + 10, "%hx", &g_sim_saddr1);
                                         sprintf(response, "OK\r\n");
-                                    } else if (strcmp(cmd_line, "AT+SADDR1?") == 0 || strcmp(cmd_line, "AT+SADDR1=?") == 0) {
+                                    } 
+                                    else if (strcmp(cmd_line, "AT+SADDR1?") == 0 || strcmp(cmd_line, "AT+SADDR1=?") == 0) {
                                         sprintf(response, "SADDR1:%04X\r\nOK\r\n", g_sim_saddr1);
-                                    } else if (strncmp(cmd_line, "AT+SADDR2=", 10) == 0) {
+                                    } 
+                                    else if (strncmp(cmd_line, "AT+SADDR2=", 10) == 0) {
                                         sscanf(cmd_line + 10, "%hx", &g_sim_saddr2);
                                         sprintf(response, "OK\r\n");
-                                    } else if (strcmp(cmd_line, "AT+SADDR2?") == 0 || strcmp(cmd_line, "AT+SADDR2=?") == 0) {
+                                    } 
+                                    else if (strcmp(cmd_line, "AT+SADDR2?") == 0 || strcmp(cmd_line, "AT+SADDR2=?") == 0) {
                                         sprintf(response, "SADDR2:%04X\r\nOK\r\n", g_sim_saddr2);
-                                    } else if (strncmp(cmd_line, "AT+LPWR=", 8) == 0) {
+                                    } 
+                                    else if (strncmp(cmd_line, "AT+LPWR=", 8) == 0) {
                                         g_sim_lpwr = (uwb_lpwr_t)atoi(cmd_line + 8);
                                         sprintf(response, "OK\r\n");
-                                    } else if (strcmp(cmd_line, "AT+LPWR?") == 0 || strcmp(cmd_line, "AT+LPWR=?") == 0) {
+                                    }
+                                    else if (strcmp(cmd_line, "AT+LPWR?") == 0 || strcmp(cmd_line, "AT+LPWR=?") == 0) {
                                         sprintf(response, "LPWR:%d\r\nOK\r\n", g_sim_lpwr);
-                                    } else if (strncmp(cmd_line, "AT+PWR=", 7) == 0) {
+                                    } 
+                                    else if (strncmp(cmd_line, "AT+PWR=", 7) == 0) {
                                         g_sim_power_level = atoi(cmd_line + 7);
                                         sprintf(response, "OK\r\n");
-                                    } else if (strcmp(cmd_line, "AT+PWR?") == 0 || strcmp(cmd_line, "AT+PWR=?") == 0) {
+                                    } 
+                                    else if (strcmp(cmd_line, "AT+PWR?") == 0 || strcmp(cmd_line, "AT+PWR=?") == 0) {
                                         sprintf(response, "PWR:%d\r\nOK\r\n", g_sim_power_level);
-                                    } else if (strncmp(cmd_line, "AT+UART=",8) == 0) {
+                                    } 
+                                    else if (strncmp(cmd_line, "AT+UART=",8) == 0) {
                                         // 注意: 模拟器的实际UART波特率在初始化时固定。
                                         // 此命令可以被应答，但不会改变模拟器硬件的波特率。
                                         sprintf(response, "OK\r\n"); 
-                                    } else if (strcmp(cmd_line, "AT+UART?") == 0 || strcmp(cmd_line, "AT+UART=?") == 0) {
+                                    } 
+                                    else if (strcmp(cmd_line, "AT+UART?") == 0 || strcmp(cmd_line, "AT+UART=?") == 0) {
                                         sprintf(response, "BAUD:%d\r\nOK\r\n", g_sim_baud_rate); // 报告初始化时配置的波特率
-                                    } else if (strcmp(cmd_line, "AT+ALL") == 0) { // 查询所有参数
+                                    } 
+                                    else if (strcmp(cmd_line, "AT+ALL") == 0) { // 查询所有参数
                                         char all_buf[200]; // 临时缓冲区用于构建AT+ALL的响应
                                         sprintf(all_buf, "AT+ROLE=%d\r\nAT+PWR=%d\r\nAT+PID=%d\r\nAT+PERIOD=%d\r\nAT+UART=%d\r\nAT+LPWR=%d\r\nAT+MADDR=%04X\r\nAT+SADDR0=%04X\r\nAT+SADDR1=%04X\r\nAT+SADDR2=%04X\r\nOK\r\n",
                                             g_sim_role, g_sim_power_level, g_sim_pid, g_sim_period_factor, g_sim_baud_rate, g_sim_lpwr, g_sim_maddr, g_sim_saddr0, g_sim_saddr1, g_sim_saddr2);
                                         strcpy(response, all_buf);
-                                    } else {
-                                        ESP_LOGW(TAG_SIM, "未知的模拟AT指令: [%s]", cmd_line);
+                                    } 
+                                    else {
+                                        ESP_LOGW(TAG_SIM, "未知的模拟AT指令: %s", cmd_line);
                                         sprintf(response, "ERROR\r\n"); // 对于无法识别的指令，回复ERROR
                                     }
 
@@ -289,9 +344,11 @@ static void uwb_sim_uart_b_event_task(void *pvParameters)
 
                                     g_sim_rx_line_pos = 0; // 重置行缓冲区，准备接收下一行
 
-                                } else if (g_sim_rx_line_pos < SIM_RX_LINE_BUF_SIZE - 1) {
+                                } 
+                                else if (g_sim_rx_line_pos < SIM_RX_LINE_BUF_SIZE - 1) {
                                     g_sim_rx_line_buffer[g_sim_rx_line_pos++] = byte; // 字节存入行缓冲区
-                                } else {
+                                } 
+                                else {
                                     ESP_LOGW(TAG_SIM, "模拟器接收行缓冲区溢出");
                                     g_sim_rx_line_pos = 0; // 溢出则重置缓冲区
                                 }

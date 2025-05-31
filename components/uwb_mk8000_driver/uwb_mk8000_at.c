@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include "driver/gpio.h"
 
 /* ------------------------- 内部定义 ------------------------- */
 #define AT_TAG "UWB_AT"
@@ -77,7 +78,7 @@ esp_err_t uwb_at_send_cmd_sync(const char* cmd, char* response_buf, size_t buf_l
     memset(g_at_response_buffer, 0, AT_RESPONSE_BUF_SIZE);
     xSemaphoreTake(g_at_response_sem, 0);
 
-    ESP_LOGW(AT_TAG, ">>> SENDING AT CMD: [%s] (len: %d)", cmd, strlen(cmd));
+    ESP_LOGW(AT_TAG, ">>> SENDING AT CMD: %s (len: %d)", cmd, strlen(cmd));
     
     if (uwb_uart_send_data(cmd, strlen(cmd)) <= 0) {//发送非NULL命令uwb_uart_send_data
         ESP_LOGE(AT_TAG, "Failed to send AT command: %s", cmd);
