@@ -196,7 +196,7 @@ int uwb_uart_send_data(const char* data, size_t len)
         ESP_LOGE(UART_TAG, "UART driver (port %d) not installed for sending.", g_uart_port);
         return -1;
     }
-
+    vTaskDelay(pdMS_TO_TICKS(20));
 #if defined(UWB_DUAL_UART_SIM_MODE)
     // 在双UART模拟模式下，App UART (UART2) 发送数据给模拟器的UART1
     ESP_LOGD(UART_TAG, "DUAL_UART_SIM: App UART (port %d) sending %d bytes: %.*s", g_uart_port, (int)len, (int)len, data);
@@ -204,6 +204,5 @@ int uwb_uart_send_data(const char* data, size_t len)
     // 真正的硬件模式
     ESP_LOGD(UART_TAG, "HW_MODE: UART (port %d) sending %d bytes: %.*s", g_uart_port, (int)len, (int)len, data);
 #endif
-
     return uart_write_bytes(g_uart_port, data, len);
 }
