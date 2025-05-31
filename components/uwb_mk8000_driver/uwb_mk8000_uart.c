@@ -9,6 +9,7 @@
 #include "include/uwb_mk8000.h"
 #include "esp_log.h"
 #include <string.h>
+#include "driver/gpio.h"
 
 /* ------------------------- 内部定义 ------------------------- */
 #define UART_TAG "UWB_UART"
@@ -112,7 +113,12 @@ esp_err_t uwb_uart_init_internal(const uwb_uart_config_t* config)
 
     
     g_uart_port = config->uart_num;
-
+    
+    // --> 新增: 为App UART RX引脚启用上拉
+    if (config->rx_pin >= 0) { // 确保rx_pin是有效的GPIO号
+        gpio_pullup_en(config->rx_pin);
+        ESP_LOGI(UART_TAG, "Pull-up enabled for App UART RX pin (GPIO%d).", config->rx_pin);
+    }
 
 
     uart_config_t uart_config_idf = {
