@@ -111,7 +111,7 @@ esp_err_t uwb_simulator_init(const uwb_simulator_uart_config_t* sim_uart_config)
     // 短暂延迟允许那些在第一次 flush 时"正在路上"或即将产生的噪声到达。
     // 第二次 flush 清除这个窗口期内新到达的垃圾数据。
     uart_flush_input(g_sim_uart_port);
-    vTaskDelay(pdMS_TO_TICKS(20)); // 20ms 延迟
+    vTaskDelay(pdMS_TO_TICKS(30)); // 30ms 延迟
     uart_flush_input(g_sim_uart_port);
 
     BaseType_t task_created;
@@ -177,12 +177,12 @@ static void uwb_sim_uart_b_event_task(void *pvParameters)
                         int len = uart_read_bytes(g_sim_uart_port, data, event.size, pdMS_TO_TICKS(100)); // 读取数据，超时100ms
                         
                         ESP_LOGW(TAG_SIM, "<<< RAW RECEIVED DATA (len: %d):", len);
-                        ESP_LOG_BUFFER_HEXDUMP(TAG_SIM, data, len, ESP_LOG_WARN);
+                        //ESP_LOG_BUFFER_HEXDUMP(TAG_SIM, data, len, ESP_LOG_WARN);
 
                         if (len > 0) 
                         {
                             ESP_LOGD(TAG_SIM, "UART%d 接收到 %d 字节数据:", g_sim_uart_port, len);
-                            ESP_LOG_BUFFER_HEXDUMP(TAG_SIM, data, len, ESP_LOG_DEBUG); // 以HEX格式打印接收到的数据 
+                            //ESP_LOG_BUFFER_HEXDUMP(TAG_SIM, data, len, ESP_LOG_DEBUG); // 以HEX格式打印接收到的数据 
                             for (int i = 0; i < len; i++) 
                             { // 逐字节处理
                                 uint8_t byte = data[i];
@@ -199,7 +199,7 @@ static void uwb_sim_uart_b_event_task(void *pvParameters)
                                     // 记录行结束前的缓冲区状态
                                     ESP_LOGD(TAG_SIM, "Newline detected. g_sim_rx_line_pos before modification: %d", g_sim_rx_line_pos);
                                     if (g_sim_rx_line_pos > 0) {
-                                        ESP_LOG_BUFFER_HEXDUMP(TAG_SIM, g_sim_rx_line_buffer, g_sim_rx_line_pos, ESP_LOG_DEBUG);
+                                            //ESP_LOG_BUFFER_HEXDUMP(TAG_SIM, g_sim_rx_line_buffer, g_sim_rx_line_pos, ESP_LOG_DEBUG);
                                     }
                                     if (g_sim_rx_line_pos > 0 && g_sim_rx_line_buffer[g_sim_rx_line_pos - 1] == '\r') {
                                         g_sim_rx_line_buffer[g_sim_rx_line_pos - 1] = '\0'; // 移除'\r'并添加字符串结束符
@@ -218,14 +218,15 @@ static void uwb_sim_uart_b_event_task(void *pvParameters)
                                     } 
                                     else if (strcmp(cmd_line, "AT+RST") == 0) {
                                         sprintf(response, "OK\r\n");
-                                        // 模拟复位：将参数恢复为出厂默认值
-                                        sim_load_factory_defaults();
-                                        ESP_LOGI(TAG_SIM, "模拟模块软件复位完成。已加载出厂默认参数。当前模式: %s", g_sim_current_mode == UWB_MODE_RANGING ? "测距模式" : "AT指令模式");
+                                        // 模拟复位：模块进入测距模式，当前已配置的参数生效
+                                        // 不再调用 sim_load_factory_defaults()，以保留已设置的参数
+                                        g_sim_current_mode = UWB_MODE_RANGING; 
+                                        ESP_LOGI(TAG_SIM, "模拟模块软件复位完成。当前配置已生效。模式: %s", g_sim_current_mode == UWB_MODE_RANGING ? "测距模式" : "AT指令模式");
                                         if(g_sim_ranging_data_task_handle && g_sim_current_mode == UWB_MODE_RANGING) {
-                                             vTaskResume(g_sim_ranging_data_task_handle); // 恢复测距任务
+                                             vTaskResume(g_sim_ranging_data_task_handle); 
                                              ESP_LOGI(TAG_SIM, "测距任务已恢复 (AT+RST)");
                                         } else if (g_sim_ranging_data_task_handle && g_sim_current_mode != UWB_MODE_RANGING) {
-                                             ESP_LOGW(TAG_SIM, "AT+RST 后模式不为测距，测距任务未恢复");
+                                             ESP_LOGW(TAG_SIM, "AT+RST 后模式不为测距 (异常情况)，测距任务未恢复");
                                         }
                                     } 
                                     else if (strcmp(cmd_line, "AT+DEFT") == 0) {
@@ -287,21 +288,33 @@ static void uwb_sim_uart_b_event_task(void *pvParameters)
                                         sprintf(response, "MADDR:%04X\r\nOK\r\n", g_sim_maddr);
                                     } 
                                     else if (strncmp(cmd_line, "AT+SADDR0=", 10) == 0) {
-                                        sscanf(cmd_line + 10, "%hx", &g_sim_saddr0);
+                                        char addr_param_s0[5] = {0};
+                                        strncpy(addr_param_s0, cmd_line + 10, 4); // Extract address parameter
+                                        ESP_LOGI(TAG_SIM, "AT+SADDR0: Received param string '%s'", addr_param_s0);
+                                        int parsed_s0 = sscanf(cmd_line + 10, "%hx", &g_sim_saddr0);
+                                        ESP_LOGI(TAG_SIM, "AT+SADDR0: sscanf result %d, g_sim_saddr0 set to 0x%04X", parsed_s0, g_sim_saddr0);
                                         sprintf(response, "OK\r\n");
                                     } 
                                     else if (strcmp(cmd_line, "AT+SADDR0?") == 0 || strcmp(cmd_line, "AT+SADDR0=?") == 0) {
                                         sprintf(response, "SADDR0:%04X\r\nOK\r\n", g_sim_saddr0);
                                     } 
                                     else if (strncmp(cmd_line, "AT+SADDR1=", 10) == 0) {
-                                        sscanf(cmd_line + 10, "%hx", &g_sim_saddr1);
+                                        char addr_param_s1[5] = {0};
+                                        strncpy(addr_param_s1, cmd_line + 10, 4); // Extract address parameter
+                                        ESP_LOGI(TAG_SIM, "AT+SADDR1: Received param string '%s'", addr_param_s1);
+                                        int parsed_s1 = sscanf(cmd_line + 10, "%hx", &g_sim_saddr1);
+                                        ESP_LOGI(TAG_SIM, "AT+SADDR1: sscanf result %d, g_sim_saddr1 set to 0x%04X", parsed_s1, g_sim_saddr1);
                                         sprintf(response, "OK\r\n");
                                     } 
                                     else if (strcmp(cmd_line, "AT+SADDR1?") == 0 || strcmp(cmd_line, "AT+SADDR1=?") == 0) {
                                         sprintf(response, "SADDR1:%04X\r\nOK\r\n", g_sim_saddr1);
                                     } 
                                     else if (strncmp(cmd_line, "AT+SADDR2=", 10) == 0) {
-                                        sscanf(cmd_line + 10, "%hx", &g_sim_saddr2);
+                                        char addr_param_s2[5] = {0};
+                                        strncpy(addr_param_s2, cmd_line + 10, 4); // Extract address parameter
+                                        ESP_LOGI(TAG_SIM, "AT+SADDR2: Received param string '%s'", addr_param_s2);
+                                        int parsed_s2 = sscanf(cmd_line + 10, "%hx", &g_sim_saddr2);
+                                        ESP_LOGI(TAG_SIM, "AT+SADDR2: sscanf result %d, g_sim_saddr2 set to 0x%04X", parsed_s2, g_sim_saddr2);
                                         sprintf(response, "OK\r\n");
                                     } 
                                     else if (strcmp(cmd_line, "AT+SADDR2?") == 0 || strcmp(cmd_line, "AT+SADDR2=?") == 0) {
@@ -398,8 +411,8 @@ static void uwb_sim_ranging_data_task(void *pvParameters)
             // 根据模拟器角色决定发送方地址
             if (g_sim_role == UWB_ROLE_MASTER) {
                 // 主机模式下，模拟器发送的数据帧中的"发送方地址"应为某个从机的地址
-                // 这是一个简化处理：真实主机是接收来自从机的数据。
-                // 为模拟此行为，我们轮流使用配置的SADDR0, SADDR1, SADDR2 (如果非零)
+                // 真实主机是接收来自从机的数据。
+                // 为模拟此行为，轮流使用配置的SADDR0, SADDR1, SADDR2 
                 uint16_t slaves[3] = {g_sim_saddr0, g_sim_saddr1, g_sim_saddr2};
                 do {
                     current_target_slave_addr = slaves[slave_idx % 3];
