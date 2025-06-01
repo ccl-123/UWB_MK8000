@@ -214,9 +214,9 @@ static void uwb_sim_uart_b_event_task(void *pvParameters)
                                             //ESP_LOG_BUFFER_HEXDUMP(TAG_SIM, g_sim_rx_line_buffer, g_sim_rx_line_pos, ESP_LOG_DEBUG);
                                     }
                                     if (g_sim_rx_line_pos > 0 && g_sim_rx_line_buffer[g_sim_rx_line_pos - 1] == '\r') {
-                                        g_sim_rx_line_buffer[g_sim_rx_line_pos - 1] = '\0'; // 移除'\r'并添加字符串结束符
+                                        g_sim_rx_line_buffer[g_sim_rx_line_pos - 1] = '\0'; // 去掉 \r
                                     } else {
-                                        g_sim_rx_line_buffer[g_sim_rx_line_pos] = '\0'; // 直接添加字符串结束符
+                                        g_sim_rx_line_buffer[g_sim_rx_line_pos] = '\0';
                                     }
                                     const char* cmd_line = (const char*)g_sim_rx_line_buffer; // 当前处理的AT指令行
                                     ESP_LOGI(TAG_SIM, "接收到模拟AT指令: %s", cmd_line);
@@ -268,36 +268,57 @@ static void uwb_sim_uart_b_event_task(void *pvParameters)
                                             sprintf(response, "ERROR\r\n"); // 无效的模式值
                                         }
                                     } 
-                                    else if (strcmp(cmd_line, "AT+MODE?") == 0 || strcmp(cmd_line, "AT+MODE=?") == 0) {
-                                        sprintf(response, "MODE:%d\r\nOK\r\n", g_sim_current_mode);
+                                    else if (strcmp(cmd_line, "AT+MODE?") == 0) {
+                                        // 查询模式可设置值范围
+                                        sprintf(response, "MODE:0~1\r\n");
                                     } 
+                                    else if (strcmp(cmd_line, "AT+MODE=?") == 0) {
+                                        // 查询当前模式值
+                                        sprintf(response, "AT+MODE=%d\r\n", g_sim_current_mode);
+                                    }
                                     else if (strncmp(cmd_line, "AT+ROLE=", 8) == 0) {
                                         g_sim_role = (uwb_role_t)atoi(cmd_line + 8);
                                         sprintf(response, "OK\r\n");
                                     } 
-                                    else if (strcmp(cmd_line, "AT+ROLE?") == 0 || strcmp(cmd_line, "AT+ROLE=?") == 0) {
-                                        sprintf(response, "ROLE:%d\r\nOK\r\n", g_sim_role);
+                                    else if (strcmp(cmd_line, "AT+ROLE?") == 0) {
+                                        // 查询角色可设置值范围
+                                        sprintf(response, "ROLE:0~1\r\n");
+                                    } 
+                                    else if (strcmp(cmd_line, "AT+ROLE=?") == 0) {
+                                        // 查询当前角色值
+                                        sprintf(response, "AT+ROLE=%d\r\n", g_sim_role);
                                     } 
                                     else if (strncmp(cmd_line, "AT+PID=", 7) == 0) {
                                         g_sim_pid = atoi(cmd_line + 7);
                                         sprintf(response, "OK\r\n");
                                     } 
-                                    else if (strcmp(cmd_line, "AT+PID?") == 0 || strcmp(cmd_line, "AT+PID=?") == 0) {
-                                        sprintf(response, "PID:%d\r\nOK\r\n", g_sim_pid);
+                                    else if (strcmp(cmd_line, "AT+PID?") == 0) {
+                                        // 查询网络ID可设置值范围
+                                        sprintf(response, "PID:0~255\r\n");
+                                    } 
+                                    else if (strcmp(cmd_line, "AT+PID=?") == 0) {
+                                        // 查询当前网络ID值
+                                        sprintf(response, "AT+PID=%d\r\n", g_sim_pid);
                                     } 
                                     else if (strncmp(cmd_line, "AT+PERIOD=", 10) == 0) {
                                         g_sim_period_factor = atoi(cmd_line + 10);
                                         sprintf(response, "OK\r\n");
                                     } 
-                                    else if (strcmp(cmd_line, "AT+PERIOD?") == 0 || strcmp(cmd_line, "AT+PERIOD=?") == 0) {
-                                        sprintf(response, "PERIOD:%d\r\nOK\r\n", g_sim_period_factor);
+                                    else if (strcmp(cmd_line, "AT+PERIOD?") == 0) {
+                                        // 查询测距周期可设置值范围
+                                        sprintf(response, "PERIOD:5~100\r\n");
+                                    } 
+                                    else if (strcmp(cmd_line, "AT+PERIOD=?") == 0) {
+                                        // 查询当前测距周期值
+                                        sprintf(response, "AT+PERIOD=%d\r\n", g_sim_period_factor);
                                     } 
                                     else if (strncmp(cmd_line, "AT+MADDR=", 9) == 0) {
                                         sscanf(cmd_line + 9, "%hx", &g_sim_maddr); // 解析十六进制地址
                                         sprintf(response, "OK\r\n");
                                     } 
-                                    else if (strcmp(cmd_line, "AT+MADDR?") == 0 || strcmp(cmd_line, "AT+MADDR=?") == 0) {
-                                        sprintf(response, "MADDR:%04X\r\nOK\r\n", g_sim_maddr);
+                                    else if (strcmp(cmd_line, "AT+MADDR?") == 0) {
+                                        // 查询主机地址可设置值范围
+                                        sprintf(response, "MADDR:0~FFFF\r\n");
                                     } 
                                     else if (strncmp(cmd_line, "AT+SADDR0=", 10) == 0) {
                                         char addr_param_s0[5] = {0};
@@ -307,8 +328,9 @@ static void uwb_sim_uart_b_event_task(void *pvParameters)
                                         ESP_LOGI(TAG_SIM, "AT+SADDR0: sscanf result %d, g_sim_saddr0 set to 0x%04X", parsed_s0, g_sim_saddr0);
                                         sprintf(response, "OK\r\n");
                                     } 
-                                    else if (strcmp(cmd_line, "AT+SADDR0?") == 0 || strcmp(cmd_line, "AT+SADDR0=?") == 0) {
-                                        sprintf(response, "SADDR0:%04X\r\nOK\r\n", g_sim_saddr0);
+                                    else if (strcmp(cmd_line, "AT+SADDR0?") == 0) {
+                                        // 查询从机0地址可设置值范围
+                                        sprintf(response, "SADDR0:0~FFFF\r\n");
                                     } 
                                     else if (strncmp(cmd_line, "AT+SADDR1=", 10) == 0) {
                                         char addr_param_s1[5] = {0};
@@ -318,8 +340,9 @@ static void uwb_sim_uart_b_event_task(void *pvParameters)
                                         ESP_LOGI(TAG_SIM, "AT+SADDR1: sscanf result %d, g_sim_saddr1 set to 0x%04X", parsed_s1, g_sim_saddr1);
                                         sprintf(response, "OK\r\n");
                                     } 
-                                    else if (strcmp(cmd_line, "AT+SADDR1?") == 0 || strcmp(cmd_line, "AT+SADDR1=?") == 0) {
-                                        sprintf(response, "SADDR1:%04X\r\nOK\r\n", g_sim_saddr1);
+                                    else if (strcmp(cmd_line, "AT+SADDR1?") == 0) {
+                                        // 查询从机1地址可设置值范围
+                                        sprintf(response, "SADDR1:0~FFFF\r\n");
                                     } 
                                     else if (strncmp(cmd_line, "AT+SADDR2=", 10) == 0) {
                                         char addr_param_s2[5] = {0};
@@ -329,30 +352,34 @@ static void uwb_sim_uart_b_event_task(void *pvParameters)
                                         ESP_LOGI(TAG_SIM, "AT+SADDR2: sscanf result %d, g_sim_saddr2 set to 0x%04X", parsed_s2, g_sim_saddr2);
                                         sprintf(response, "OK\r\n");
                                     } 
-                                    else if (strcmp(cmd_line, "AT+SADDR2?") == 0 || strcmp(cmd_line, "AT+SADDR2=?") == 0) {
-                                        sprintf(response, "SADDR2:%04X\r\nOK\r\n", g_sim_saddr2);
+                                    else if (strcmp(cmd_line, "AT+SADDR2?") == 0) {
+                                        // 查询从机2地址可设置值范围
+                                        sprintf(response, "SADDR2:0~FFFF\r\n");
                                     } 
                                     else if (strncmp(cmd_line, "AT+LPWR=", 8) == 0) {
                                         g_sim_lpwr = (uwb_lpwr_t)atoi(cmd_line + 8);
                                         sprintf(response, "OK\r\n");
                                     }
-                                    else if (strcmp(cmd_line, "AT+LPWR?") == 0 || strcmp(cmd_line, "AT+LPWR=?") == 0) {
-                                        sprintf(response, "LPWR:%d\r\nOK\r\n", g_sim_lpwr);
+                                    else if (strcmp(cmd_line, "AT+LPWR?") == 0) {
+                                        // 查询低功耗模式可设置值范围
+                                        sprintf(response, "LPWR:0~1\r\n");
                                     } 
                                     else if (strncmp(cmd_line, "AT+PWR=", 7) == 0) {
                                         g_sim_power_level = atoi(cmd_line + 7);
                                         sprintf(response, "OK\r\n");
                                     } 
-                                    else if (strcmp(cmd_line, "AT+PWR?") == 0 || strcmp(cmd_line, "AT+PWR=?") == 0) {
-                                        sprintf(response, "PWR:%d\r\nOK\r\n", g_sim_power_level);
+                                    else if (strcmp(cmd_line, "AT+PWR?") == 0) {
+                                        // 查询功率等级可设置值范围
+                                        sprintf(response, "PWR:0~4\r\n");
                                     } 
                                     else if (strncmp(cmd_line, "AT+UART=",8) == 0) {
                                         // 注意: 模拟器的实际UART波特率在初始化时固定。
                                         // 此命令可以被应答，但不会改变模拟器硬件的波特率。
                                         sprintf(response, "OK\r\n"); 
                                     } 
-                                    else if (strcmp(cmd_line, "AT+UART?") == 0 || strcmp(cmd_line, "AT+UART=?") == 0) {
-                                        sprintf(response, "BAUD:%d\r\nOK\r\n", g_sim_baud_rate); // 报告初始化时配置的波特率
+                                    else if (strcmp(cmd_line, "AT+UART?") == 0) {
+                                        // 查询波特率可设置值范围
+                                        sprintf(response, "BAUD:115200\r\n");
                                     } 
                                     else if (strcmp(cmd_line, "AT+ALL") == 0) { // 查询所有参数
                                         char all_buf[200]; // 临时缓冲区用于构建AT+ALL的响应

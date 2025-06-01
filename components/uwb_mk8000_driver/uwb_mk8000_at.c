@@ -129,10 +129,8 @@ void uwb_at_handle_response_line(const char* line)
         "PERIOD:", "MODE:", "BAUD:", "VER:"
     };
     
-    bool is_query_response = false;
     for (int i = 0; i < sizeof(query_prefixes) / sizeof(query_prefixes[0]); i++) {
         if (strncmp(line, query_prefixes[i], strlen(query_prefixes[i])) == 0) {
-            is_query_response = true;
             g_at_response_ok = true;  // 查询响应被视为成功
             is_final_response = true; // 查询响应被视为最终响应
             ESP_LOGD(AT_TAG, "Query response detected: %s", line);
