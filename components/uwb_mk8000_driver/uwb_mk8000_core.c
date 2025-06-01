@@ -93,9 +93,10 @@ void uwb_process_received_data(const uint8_t* data, uint16_t len)
         }
 
         // 如果正在接收测距帧
-        if (g_rx_line_pos > 0 && g_rx_line_buffer[0] == 0xF0) {
+        if (g_rx_line_pos > 0 && g_rx_line_buffer[0] == 0xF0) 
+        {
             g_rx_line_buffer[g_rx_line_pos++] = byte;
-            if (g_rx_line_pos == RANGING_FRAME_SIZE) 
+            if (g_rx_line_pos == RANGING_FRAME_SIZE) //接收到完整的8字节测距数据帧
             {
                 handle_ranging_frame(g_rx_line_buffer, RANGING_FRAME_SIZE);
                 g_rx_line_pos = 0; // 重置缓冲区
@@ -109,8 +110,6 @@ void uwb_process_received_data(const uint8_t* data, uint16_t len)
 
         // 否则，假设是AT响应，按行处理 (This part is simplified)
         if (byte == '\n') {
-
-            // 真实模式下的处理逻辑不变 (now also for new dual UART sim mode from app UART perspective)
             if (g_rx_line_pos > 0 && g_rx_line_buffer[g_rx_line_pos - 1] == '\r') {
                 g_rx_line_buffer[g_rx_line_pos - 1] = '\0'; // 去掉 \r
                 uwb_at_handle_response_line((const char*)g_rx_line_buffer);
@@ -118,11 +117,12 @@ void uwb_process_received_data(const uint8_t* data, uint16_t len)
                  g_rx_line_buffer[g_rx_line_pos] = '\0';
                  uwb_at_handle_response_line((const char*)g_rx_line_buffer);
             }
-
             g_rx_line_pos = 0; 
-        } else if (g_rx_line_pos < RX_LINE_BUF_SIZE - 1) {
+        } 
+        else if (g_rx_line_pos < RX_LINE_BUF_SIZE - 1) {
             g_rx_line_buffer[g_rx_line_pos++] = byte;
-        } else {
+        } 
+        else {
              ESP_LOGW(CORE_TAG, "AT response line buffer overflow, resetting.");
              g_rx_line_pos = 0; // 缓冲区溢出，重置
         }

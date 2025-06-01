@@ -35,6 +35,28 @@ extern "C" {
 #define UWB_DEFAULT_PERIOD 100       ///< 模块出厂默认测距周期 (100 * 10ms = 1s)
 #define AT_CMD_TIMEOUT_MS (2000)     ///< AT指令响应默认超时时间 (新增)
 
+/* ------------------------- 引脚定义 ------------------------- */
+#define UWB_UART_TX_PIN             17  ///< ESP32 TX引脚连接到UWB模块RX
+#define UWB_UART_RX_PIN             16  ///< ESP32 RX引脚连接到UWB模块TX
+
+/* ------------------------- 模拟器引脚定义 ------------------------- */
+#define UWB_SIM_UART_TX_PIN         19  ///< 模拟器UART TX引脚
+#define UWB_SIM_UART_RX_PIN         18  ///< 模拟器UART RX引脚
+
+/* ------------------------- 缓冲区大小定义 ------------------------- */
+#define UWB_UART_RX_BUFFER_SIZE     (1024 * 2)  ///< UART接收缓冲区大小
+#define UWB_UART_TX_BUFFER_SIZE     512         ///< UART发送缓冲区大小
+
+/* ------------------------- UWB设备地址定义 ------------------------- */
+#define UWB_MASTER_SELF_ADDR        0x0000  ///< 主机（基站）本机地址
+#define UWB_SLAVE_ADDR_0            0x0001  ///< 从机0地址
+#define UWB_SLAVE_ADDR_1            0x0002  ///< 从机1地址
+#define UWB_SLAVE_ADDR_2            0x0003  ///< 从机2地址
+
+/* ------------------------- 测距参数定义 ------------------------- */
+#define UWB_RANGING_PERIOD  20      ///< 测距周期因子（实际周期 = 值 * 10ms = 200ms）
+
+
 /* ------------------------- 枚举定义 ------------------------- */
 
 /**

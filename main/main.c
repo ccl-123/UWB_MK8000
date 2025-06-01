@@ -58,11 +58,11 @@ void app_main(void)
     // 配置和初始化 UWB 模块模拟器 (UART_B)
     uwb_simulator_uart_config_t sim_uart_config = {
         .uart_num = UART_NUM_1,       // 使用 UART1 作为模拟器端口
-        .tx_pin = 19,                 // 模拟器 UART_B TX (连接到主应用 UART_A RX)
-        .rx_pin = 18,                 // 模拟器 UART_B RX (连接到主应用 UART_A TX)
+        .tx_pin = UWB_SIM_UART_TX_PIN, // 模拟器 UART_B TX (连接到主应用 UART_A RX)
+        .rx_pin = UWB_SIM_UART_RX_PIN, // 模拟器 UART_B RX (连接到主应用 UART_A TX)
         .baud_rate = UWB_DEFAULT_BAUD_RATE, // 与主应用UART波特率一致
-        .rx_buffer_size = 1024 * 2,
-        .tx_buffer_size = 512
+        .rx_buffer_size = UWB_UART_RX_BUFFER_SIZE,
+        .tx_buffer_size = UWB_UART_TX_BUFFER_SIZE
     };
     ret = uwb_simulator_init(&sim_uart_config);
     if (ret != ESP_OK) {
@@ -77,11 +77,11 @@ void app_main(void)
     // 2. 定义主应用 UART 配置 (UART_A)
     uwb_uart_config_t app_uart_config = {
         .uart_num = UART_NUM_2,         // 使用UART2 
-        .tx_pin = 17,                   // UWB_RX 连接到 ESP32_TX (GPIO17)
-        .rx_pin = 16,                   // UWB_TX 连接到 ESP32_RX (GPIO16)
+        .tx_pin = UWB_UART_TX_PIN,      // UWB_RX 连接到 ESP32_TX
+        .rx_pin = UWB_UART_RX_PIN,      // UWB_TX 连接到 ESP32_RX
         .baud_rate = UWB_DEFAULT_BAUD_RATE, // 使用模块默认波特率 
-        .rx_buffer_size = 1024 * 2,
-        .tx_buffer_size = 512
+        .rx_buffer_size = UWB_UART_RX_BUFFER_SIZE,
+        .tx_buffer_size = UWB_UART_TX_BUFFER_SIZE
     };
 
     // 3. 初始化UWB驱动
@@ -96,16 +96,16 @@ void app_main(void)
     ESP_LOGI(TAG, "Waiting for system to stabilize before UWB configuration...");
     vTaskDelay(pdMS_TO_TICKS(1000)); 
 
-    // 4. 定义模块配置 (配置为"主机"，与从机0x0001通信，周期200ms)
+    // 4. 定义模块配置 (配置为"主机"，与从机通信，周期200ms)
     uwb_settings_t my_settings = {
         .role = UWB_ROLE_MASTER,        // 设置为 主机 
-        .self_address = 0x0000,         // 主机地址
-        .master_address = 0x0000,       //从机模式调用
-        .slave_addr_0 = 0x0001,         // 设置从机0地址 
-        .slave_addr_1 = 0x0002,         // 设置从机1地址  
-        .slave_addr_2 = 0x0003,         // 设置从机2地址 
+        .self_address = UWB_MASTER_SELF_ADDR, // 主机地址
+        .master_address = UWB_MASTER_SELF_ADDR, //从机模式调用
+        .slave_addr_0 = UWB_SLAVE_ADDR_0,    // 设置从机0地址 
+        .slave_addr_1 = UWB_SLAVE_ADDR_1,    // 设置从机1地址  
+        .slave_addr_2 = UWB_SLAVE_ADDR_2,    // 设置从机2地址 
         .network_id = UWB_DEFAULT_NETWORK_ID, // 使用默认网络ID 
-        .ranging_period = 20,           // 20 * 10ms = 200ms 周期 
+        .ranging_period = UWB_RANGING_PERIOD, // 测距周期 
         .low_power_mode = UWB_LPWR_OFF  // 关闭低功耗 
     };
 

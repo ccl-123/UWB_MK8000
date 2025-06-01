@@ -7,6 +7,21 @@
 
 static const char* TAG_SIM = "UWB_SIMULATOR"; 
 
+/* ------------------------- 模拟器内部常量定义 ------------------------- */
+#define SIM_RX_LINE_BUF_SIZE 256         ///< 模拟器AT指令行接收缓冲区大小
+#define SIM_RANGING_FRAME_SIZE 8         ///< 模拟的测距数据帧固定大小
+#define SIM_DEFAULT_POWER_LEVEL 3        ///< 模拟的默认功率等级 (14dBm)
+
+
+
+#define SIM_UART_EVENT_TASK_PRIORITY 10  ///< 模拟器UART事件任务优先级
+
+#define SIM_DEFAULT_DIST_MIN 50          ///< 模拟测距最小值 (cm)
+#define SIM_DEFAULT_DIST_RANGE 200       ///< 模拟测距范围 (cm)
+#define SIM_DEFAULT_RSSI_BASE (-50)      ///< 模拟RSSI基准值 (dBm)
+#define SIM_DEFAULT_RSSI_RANGE 40        ///< 模拟RSSI变化范围
+
+
 // 模拟器内部状态变量
 static uart_port_t g_sim_uart_port; ///< 模拟器使用的UART端口号
 static QueueHandle_t g_sim_uart_queue = NULL; ///< 模拟器UART事件队列
@@ -25,14 +40,11 @@ static uint8_t  g_sim_pid = UWB_DEFAULT_NETWORK_ID;   ///< 模拟的网络ID: AT
 static uint8_t  g_sim_period_factor = UWB_DEFAULT_PERIOD; ///< 模拟的测距周期因子: AT+PERIOD=100 (实际周期 = 值 * 10ms)
 static uwb_lpwr_t g_sim_lpwr = UWB_LPWR_OFF;          ///< 模拟的低功耗模式: AT+LPWR=0 (关闭)
 static uwb_mode_t g_sim_current_mode = UWB_MODE_RANGING; ///< 模拟的当前工作模式: 上电默认为测距模式
-static uint8_t  g_sim_power_level = 3;                ///< 模拟的功率等级: AT+PWR=3 (14dBm)
+static uint8_t  g_sim_power_level = SIM_DEFAULT_POWER_LEVEL; ///< 模拟的功率等级: AT+PWR=3 (14dBm)
 static int      g_sim_baud_rate = UWB_DEFAULT_BAUD_RATE; ///< 模拟的串口波特率: AT+UART=115200
 
-#define SIM_RX_LINE_BUF_SIZE 256 ///< 模拟器AT指令行接收缓冲区大小
 static uint8_t g_sim_rx_line_buffer[SIM_RX_LINE_BUF_SIZE]; ///< 模拟器AT指令行接收缓冲区
 static uint16_t g_sim_rx_line_pos = 0; ///< AT指令行接收缓冲区当前位置
-
-#define SIM_RANGING_FRAME_SIZE 8 ///< 模拟的测距数据帧固定大小
 
 // 内部任务函数前向声明
 static void uwb_sim_uart_b_event_task(void *pvParameters);
@@ -49,16 +61,16 @@ static void sim_load_factory_defaults(void)
     ESP_LOGI(TAG_SIM, "正在加载模拟器出厂默认参数...");
 
     g_sim_role = UWB_ROLE_MASTER;         // 手册默认: 主机模式 (1)
-    g_sim_power_level = 3;                // 手册默认: 3 (14dBm)
+    g_sim_power_level = SIM_DEFAULT_POWER_LEVEL; // 手册默认: 3 (14dBm)
     g_sim_pid = UWB_DEFAULT_NETWORK_ID;   // 手册默认: 255
     g_sim_period_factor = UWB_DEFAULT_PERIOD; // 手册默认: 100 (1s)
     // g_sim_baud_rate 在模拟器中于初始化时固定, 这里不改变其运行时值
     // 但其初始值 UWB_DEFAULT_BAUD_RATE (115200) 符合手册默认
     g_sim_lpwr = UWB_LPWR_OFF;          // 手册默认: 0 (关闭)
-    g_sim_maddr = 0x0001;                   // 手册默认: 1 (主机地址)
-    g_sim_saddr0 = 0x0000;                  // 手册默认: 0
-    g_sim_saddr1 = 0x0000;                  // 手册默认: 0
-    g_sim_saddr2 = 0x0000;                  // 手册默认: 0
+    g_sim_maddr = UWB_SLAVE_ADDR_0;     // 手册默认: 1 (主机地址)
+    g_sim_saddr0 = UWB_MASTER_SELF_ADDR; // 手册默认: 0
+    g_sim_saddr1 = UWB_MASTER_SELF_ADDR; // 手册默认: 0
+    g_sim_saddr2 = UWB_MASTER_SELF_ADDR; // 手册默认: 0
     g_sim_current_mode = UWB_MODE_RANGING;  // 手册默认: 上电或复位后为测距模式
 
     ESP_LOGI(TAG_SIM, "模拟器出厂默认参数加载完成。当前模式: %s", g_sim_current_mode == UWB_MODE_RANGING ? "测距模式" : "AT指令模式");
@@ -111,7 +123,7 @@ esp_err_t uwb_simulator_init(const uwb_simulator_uart_config_t* sim_uart_config)
     // 短暂延迟允许那些在第一次 flush 时"正在路上"或即将产生的噪声到达。
     // 第二次 flush 清除这个窗口期内新到达的垃圾数据。
     uart_flush_input(g_sim_uart_port);
-    vTaskDelay(pdMS_TO_TICKS(30)); // 30ms 延迟
+    vTaskDelay(pdMS_TO_TICKS(30)); 
     uart_flush_input(g_sim_uart_port);
 
     BaseType_t task_created;
@@ -392,7 +404,7 @@ static void uwb_sim_uart_b_event_task(void *pvParameters)
 
 static void uwb_sim_ranging_data_task(void *pvParameters) 
 {
-    uint16_t dist_cm = 100; // 初始模拟距离
+    uint16_t dist_cm = SIM_DEFAULT_DIST_MIN; // 初始模拟距离
     uint16_t current_target_slave_addr; 
     int slave_idx = 0; // 用于轮询从机地址
     vTaskDelay(pdMS_TO_TICKS(1000));
@@ -428,11 +440,11 @@ static void uwb_sim_ranging_data_task(void *pvParameters)
                 frame[3] = (g_sim_maddr >> 8) & 0xFF; // 发送方地址 高字节
             }
 
-            dist_cm = 50 + (rand() % 200); // 随机生成距离: 50-249 cm
+            dist_cm = SIM_DEFAULT_DIST_MIN + (rand() % SIM_DEFAULT_DIST_RANGE); // 随机生成距离: 50-249 cm
             frame[4] = dist_cm & 0xFF;        // 距离 低字节
             frame[5] = (dist_cm >> 8) & 0xFF; // 距离 高字节
 
-            int8_t rssi_val = -50 - (rand() % 40); // 随机生成RSSI: -50 到 -89 dBm
+            int8_t rssi_val = SIM_DEFAULT_RSSI_BASE - (rand() % SIM_DEFAULT_RSSI_RANGE); // 随机生成RSSI: -50 到 -89 dBm
             frame[6] = (uint8_t)(rssi_val + 256); // RSSI 存储值 = 实际值 + 256
             frame[7] = 0xAA; // 帧尾
 
