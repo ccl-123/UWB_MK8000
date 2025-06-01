@@ -13,7 +13,7 @@
 
 /* ------------------------- 内部定义 ------------------------- */
 #define CORE_TAG "UWB_CORE"
-#define RX_LINE_BUF_SIZE 256 ///< 行缓冲区大小
+#define RX_LINE_BUF_SIZE 512 ///< 行缓冲区大小
 #define RANGING_FRAME_SIZE 8 ///< 测距数据帧大小
 
 /* ------------------------- 内部变量 ------------------------- */
@@ -108,23 +108,31 @@ void uwb_process_received_data(const uint8_t* data, uint16_t len)
             continue;
         }
 
-        // 否则，假设是AT响应，按行处理 (This part is simplified)
+        // 否则，假设是AT响应，按行处理
         if (byte == '\n') {
-            if (g_rx_line_pos > 0 && g_rx_line_buffer[g_rx_line_pos - 1] == '\r') {
-                g_rx_line_buffer[g_rx_line_pos - 1] = '\0'; // 去掉 \r
+            // 确保字符串正确终止
+            if (g_rx_line_pos < RX_LINE_BUF_SIZE) {
+                if (g_rx_line_pos > 0 && g_rx_line_buffer[g_rx_line_pos - 1] == '\r') {
+                    g_rx_line_buffer[g_rx_line_pos - 1] = '\0'; // 去掉 \r
+                } else {
+                    g_rx_line_buffer[g_rx_line_pos] = '\0';
+                }
+                // 处理完整一行
                 uwb_at_handle_response_line((const char*)g_rx_line_buffer);
             } else {
-                 g_rx_line_buffer[g_rx_line_pos] = '\0';
-                 uwb_at_handle_response_line((const char*)g_rx_line_buffer);
+                // 行缓冲区已满，截断并确保正确终止
+                g_rx_line_buffer[RX_LINE_BUF_SIZE - 1] = '\0';
+                ESP_LOGW(CORE_TAG, "Line buffer full, truncating to %d bytes", RX_LINE_BUF_SIZE - 1);
+                uwb_at_handle_response_line((const char*)g_rx_line_buffer);
             }
-            g_rx_line_pos = 0; 
-        } 
-        else if (g_rx_line_pos < RX_LINE_BUF_SIZE - 1) {
+            
+            g_rx_line_pos = 0; // 重置缓冲区
+        } else if (g_rx_line_pos < RX_LINE_BUF_SIZE - 1) {
             g_rx_line_buffer[g_rx_line_pos++] = byte;
-        } 
-        else {
-             ESP_LOGW(CORE_TAG, "AT response line buffer overflow, resetting.");
-             g_rx_line_pos = 0; // 缓冲区溢出，重置
+        } else {
+            // 缓冲区已满但还未遇到行结束符，继续接收字符直到遇到\n
+            ESP_LOGW(CORE_TAG, "Line buffer overflow, additional characters will be ignored");
+            
         }
     }
 }

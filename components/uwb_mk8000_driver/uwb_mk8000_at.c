@@ -109,25 +109,66 @@ void uwb_at_handle_response_line(const char* line)
     if (line == NULL) return;
 
     ESP_LOGD(AT_TAG, "Handling AT line: [%s]", line);
-
+    
     // 检查是否是 OK 或 ERROR
     bool is_final_response = false;
     if (strcmp(line, "OK") == 0) {
         g_at_response_ok = true;
         is_final_response = true;
+        ESP_LOGD(AT_TAG, "Final response: OK");
     } else if (strcmp(line, "ERROR") == 0) {
         g_at_response_ok = false;
         is_final_response = true;
+        ESP_LOGD(AT_TAG, "Final response: ERROR");
     }
 
-    // 累加响应到缓冲区 (简单实现)
-    // 实际应处理多行响应，如 AT+ALL
-    strncat(g_at_response_buffer, line, AT_RESPONSE_BUF_SIZE - strlen(g_at_response_buffer) - 1);
-    strncat(g_at_response_buffer, "\n", AT_RESPONSE_BUF_SIZE - strlen(g_at_response_buffer) - 1);
+    // 检查是否为查询参数响应（格式为 XXX:value 或 XXX:range）
+    static const char* query_prefixes[] = {
+        "ROLE:", "UART:", "PID:", "PWR:", "LPWR:", 
+        "MADDR:", "SADDR0:", "SADDR1:", "SADDR2:",
+        "PERIOD:", "MODE:", "BAUD:", "VER:"
+    };
+    
+    bool is_query_response = false;
+    for (int i = 0; i < sizeof(query_prefixes) / sizeof(query_prefixes[0]); i++) {
+        if (strncmp(line, query_prefixes[i], strlen(query_prefixes[i])) == 0) {
+            is_query_response = true;
+            g_at_response_ok = true;  // 查询响应被视为成功
+            is_final_response = true; // 查询响应被视为最终响应
+            ESP_LOGD(AT_TAG, "Query response detected: %s", line);
+            break;
+        }
+    }
+    
+    // 检查是否是AT+ALL响应的最后一行(AT+SADDR2=)
+    if (!is_final_response && strncmp(line, "AT+SADDR2=", 10) == 0) {
+        is_final_response = true;
+        g_at_response_ok = true;
+        ESP_LOGD(AT_TAG, "AT+ALL final line detected");
+    }
 
+    // 添加到响应缓冲区
+    size_t remaining = AT_RESPONSE_BUF_SIZE - strlen(g_at_response_buffer) - 1;
+    if (remaining > 0) {
+        strncat(g_at_response_buffer, line, remaining);
+        
+        // 只有在还有剩余空间的情况下才添加换行符
+        remaining = AT_RESPONSE_BUF_SIZE - strlen(g_at_response_buffer) - 1;
+        if (remaining > 0) {
+            strncat(g_at_response_buffer, "\n", remaining);
+        } else {
+            ESP_LOGW(AT_TAG, "Response buffer full, truncating");
+        }
+    } else {
+        ESP_LOGW(AT_TAG, "Response buffer overflow, content truncated");
+    }
 
-    // 如果是最终响应 (OK/ERROR)，则释放信号量
+    // 如果是最终响应，释放信号量
     if (is_final_response && g_at_response_sem != NULL) {
         xSemaphoreGive(g_at_response_sem);
+        ESP_LOGD(AT_TAG, "Final response received, semaphore released");
     }
+    
+    ESP_LOGD(AT_TAG, "Current buffer [%zu bytes]: %s", 
+             strlen(g_at_response_buffer), g_at_response_buffer);
 }
