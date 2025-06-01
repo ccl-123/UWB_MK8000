@@ -291,25 +291,45 @@ config_error:
     return ret;
 }
 
-
+/**
+ * @brief 向UWB模块发送软件复位命令
+ * @details 发送AT+RST指令使模块复位。复位后模块将以当前参数设置启动，并进入测距模式。。
+ * @note 复位后模块将进入测距模式，若需要配置模块，需重新进入AT指令模式
+ */
 esp_err_t uwb_software_reset(void)
 {
     if (!g_driver_initialized) return ESP_ERR_INVALID_STATE;
     return uwb_at_send_cmd_sync("AT+RST\r\n", NULL, 0, 1500);
 }
 
+/**
+ * @brief 恢复UWB模块出厂设置
+ * @details 发送AT+DEFT指令将模块所有参数恢复为出厂默认值，并自动复位。
+ * @note 出厂默认参数: 主机模式、功率等级3、波特率115200、网络ID 255、低功耗关闭、
+ *       主机地址1、从机地址0、测距周期100(1s)
+ */
 esp_err_t uwb_factory_reset(void)
 {
     if (!g_driver_initialized) return ESP_ERR_INVALID_STATE;
     return uwb_at_send_cmd_sync("AT+DEFT\r\n", NULL, 0, 1500); 
 }
 
+/**
+ * @brief 查询UWB模块固件版本
+ * @details 发送AT+VER指令查询模块的固件版本信息。
+ */
 esp_err_t uwb_query_version(char* buffer, size_t buffer_len)
 {
     if (!g_driver_initialized) return ESP_ERR_INVALID_STATE;
     return uwb_at_send_cmd_sync("AT+VER\r\n", buffer, buffer_len, AT_CMD_TIMEOUT_MS); 
 }
 
+/**
+ * @brief 查询UWB模块所有参数
+ * @details 发送AT+ALL指令查询模块的所有当前参数设置。
+ * @note 预期返回格式包含角色、功率、网络ID、测距周期、波特率、
+ *       低功耗模式、主机地址、从机地址等多行数据
+ */
 esp_err_t uwb_query_all_params(char* buffer, size_t buffer_len)
 {
     if (!g_driver_initialized) return ESP_ERR_INVALID_STATE;
